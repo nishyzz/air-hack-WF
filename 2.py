@@ -1,62 +1,82 @@
-import subprocess
-import re
+import os
 import platform
+import subprocess
+import time
 
-def scan_wifi_networks():
-    os_type = platform.system()
-    
-    if os_type == "Linux" or os_type == "Darwin":  # Para Linux e macOS
-        try:
-            result = subprocess.check_output(['iwlist', 'wlan0', 'scan'], universal_newlines=True)
-            networks = re.findall(r'Cell \d+ - Address: (\S+).*?ESSID:"(.*?)".*?Quality=(\d+/\d+)', result, re.S)
-        except subprocess.CalledProcessError:
-            print("Erro ao escanear redes Wi-Fi.")
-            return None
+try:
+    import pywifi
+except ImportError:
+    pywifi = None  # pywifi será usado apenas no Windows
 
-    elif os_type == "Windows":  # Para Windows
-        try:
-            result = subprocess.check_output(['netsh', 'wlan', 'show', 'network', 'mode=Bssid'], universal_newlines=True)
-            networks = re.findall(r'SSID (\d+).*?\n.*?BSSID 1.*?: (\S+).*?\n.*?Sinal.*?: (\d+)%', result, re.S)
-        except subprocess.CalledProcessError:
-            print("Erro ao escanear redes Wi-Fi no Windows.")
-            return None
+# Função para escanear redes no Linux
+def scan_wifi_linux():
+    try:
+        result = subprocess.check_output(['nmcli', '-t', '-f', 'SSID', 'dev', 'wifi'], universal_newlines=True)
+        networks = result.strip().split('\n')
+        if networks:
+            print("Redes Wi-Fi Próximas (Linux):")
+            for idx, network in enumerate(networks, 1):
+                print(f"{idx}. SSID: {network}")
+        else:
+            print("Nenhuma rede Wi-Fi encontrada no Linux.")
+    except Exception as e:
+        print(f"Erro ao escanear redes Wi-Fi no Linux: {e}")
+
+# Função para escanear redes no Termux (usando arp-scan)
+def scan_wifi_termux():
+    try:
+        result = subprocess.check_output(['arp-scan', '--localnet'], universal_newlines=True)
+        print("Redes Wi-Fi Próximas (Termux):")
+        print(result)
+    except Exception as e:
+        print(f"Erro ao escanear redes Wi-Fi no Termux: {e}")
+
+# Função para escanear redes no Windows (usando pywifi)
+def scan_wifi_windows():
+    if not pywifi:
+        print("pywifi não está instalado.")
+        return
     
-    else:
-        print(f"Sistema Operacional {os_type} não suportado para escaneamento Wi-Fi.")
-        return None
-    
-    if not networks:
-        print("Nenhuma rede Wi-Fi encontrada.")
-        return None
+    wifi = pywifi.PyWiFi()
+    iface = wifi.interfaces()[0]
+
+    iface.scan()  # Inicia a varredura
+    time.sleep(3)  # Aguarda a varredura ser concluída
+    scan_results = iface.scan_results()
+
+    if not scan_results:
+        print("Nenhuma rede Wi-Fi encontrada no Windows.")
+        return
 
     wifi_list = []
-    # Exibe todas as redes encontradas
-    print("Redes Wi-Fi Próximas:")
-    for idx, network in enumerate(networks):
-        if os_type == "Windows":
-            ssid, bssid, signal_strength = network
-            print(f"{idx + 1}. SSID: {ssid}, BSSID: {bssid}, Sinal: {signal_strength}%")
-        else:
-            bssid, ssid, quality = network
-            print(f"{idx + 1}. SSID: {ssid}, BSSID: {bssid}, Qualidade: {quality}")
-        
+    print("Redes Wi-Fi Próximas (Windows):")
+    for idx, network in enumerate(scan_results):
+        ssid = network.ssid
+        bssid = network.bssid
+        signal = network.signal
+        print(f"{idx + 1}. SSID: {ssid}, BSSID: {bssid}, Sinal: {signal}")
         wifi_list.append((ssid, bssid))
     
     return wifi_list
 
+# Menu principal
 def main():
-    wifi_networks = scan_wifi_networks()
-    
-    if wifi_networks:
-        choice = int(input("Escolha uma rede Wi-Fi para mais informações: ")) - 1
-        
-        if 0 <= choice < len(wifi_networks):
-            ssid, bssid = wifi_networks[choice]
-            print(f"Você escolheu: SSID: {ssid}, BSSID: {bssid}")
+    system_os = platform.system().lower()
+
+    if system_os == 'linux':
+        if 'termux' in os.environ.get('PREFIX', ''):
+            print("Executando no Termux.")
+            scan_wifi_termux()
         else:
-            print("Escolha inválida.")
+            print("Executando no Linux.")
+            scan_wifi_linux()
+
+    elif system_os == 'windows':
+        print("Executando no Windows.")
+        scan_wifi_windows()
+
     else:
-        print("Nenhuma rede Wi-Fi disponível.")
+        print("Sistema Operacional não suportado.")
 
 if __name__ == "__main__":
     main()
